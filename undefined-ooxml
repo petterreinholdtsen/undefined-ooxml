@@ -1,0 +1,95 @@
+#!/usr/bin/python
+"""
+
+Check OOXML (docx, pptx etc) files and detect for content with
+undefined or application defined behaviour.
+
+"""
+
+import sys
+from BeautifulSoup import BeautifulSoup
+from zipfile import ZipFile
+
+probleminfo = {
+    'boguscheck'
+    : 'Bogus check to verify the script is able to parse docx files at all.',
+
+    'printer-setting'
+    : 'ECMA-376 r4 part 1 section 15.2.15 state that this relationship is application-defined.',
+
+    'file-properties'
+    : 'ECMA-376 r4 part 1 section 11 mention that the "/docProps/app.xml" file is application defined.  This might be the same issue as extended-properties.',
+
+    'extended-properties'
+    : 'ECMA-376 r4 part 1 section 22.2 state that this relationship include content without a clear definition in the specification.  See also sections 11, 12.2 and 13.',
+
+    'alternative-format-chunk'
+    : 'ECMA-376 r4 part section 11.3.1 (Alternative Format Import) explain that the content of the alternative format content is Application-defined.',
+    }
+
+# FIXME unhandled issues:
+
+# p1 12.2 Package Structure [Application-defined]
+
+# p1 12.3.5 Custom Property Part [Application-defined]
+
+# p1 17.3.4 Border Properties (CT_Border) [Application-defined]
+# Proposed test: Look for <w:bdr> without 'sz' attribute.
+
+
+def problem(problems, tag, details):
+    problems.append((tag, details))
+
+def checkXML(problems, soup, filename):
+    if '_rels/.rels' == filename:
+        for r in soup.findAll('relationship'):
+            #print r['type']
+            # Dummy problem to verify code work.  FIXME remove when
+            # script is more complete.
+            if "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" == r['type']:
+                problem(problems, 'boguscheck', 'bogus script checker')
+
+            printrel = "http://purl.oclc.org/ooxml/officeDocument/relationships/printerSettings"
+            if printrel == r['type']:
+                problem(problems, 'printer-setting',
+                        'file %s contain %s relationship'
+                        % (filename, printrel))
+
+            extproprel = 'http://purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties'
+            if extproprel == r['type']:
+                problem(problems, 'extended-properties',
+                        'file %s contain %s relationship' % (filename,
+                                                             extproprel))
+
+            altformrel = 'http://purl.oclc.org/ooxml/officeDocument/relationships/aFChunk'
+            if altformrel == r['type']:
+                problem(problems, 'alternative-format-chunk',
+                        'file %s contain %s relationship' % (filename,
+                                                             altformrel))
+
+def checkfile(filename):
+    problems = []
+    with ZipFile(filename, 'r') as ooxml:
+        for entry in ooxml.infolist():
+            if ('/docProps/app.xml' == entry.filename):
+                problem(problems, 'file-properties', 'file found')
+                # No need to parse it, the entire file is application-defined
+                continue
+            if (-1 != entry.filename.find('.xml') or
+                '_rels/.rels' == entry.filename):
+#                print entry.filename
+                fh = ooxml.open(entry, 'r')
+                s = BeautifulSoup(fh)
+                checkXML(problems, s, entry.filename)
+
+    for t, d in problems:
+        print d
+        print " ", probleminfo[t]
+
+def main():
+    for filename in sys.argv[1:]:
+        print("Checking %s" % filename)
+        checkfile(filename)
+
+if __name__ == '__main__':
+    main()
